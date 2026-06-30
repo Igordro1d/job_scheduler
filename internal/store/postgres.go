@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 
 	"github.com/Igordro1d/job_scheduler/internal/job"
 	"github.com/jackc/pgx/v5"
@@ -21,9 +22,13 @@ func NewPostgres(pool *pgxpool.Pool) *Postgres {
 }
 
 func (p *Postgres) Enqueue(ctx context.Context, params job.EnqueueParams) (*job.Job, error) {
+	if params.Payload == nil {
+		return nil, errors.New("payload is required")
+	}
+
 	query := `INSERT INTO jobs (type, payload, priority, depends_on, idempotency_key)
 		VALUES ($1, $2, $3, $4, $5)
-		RETURNING` + jobColumns
+		RETURNING ` + jobColumns
 
 	row := p.pool.QueryRow(ctx, query,
 		params.Type, params.Payload, params.Priority, params.DependsOn, params.IdempotencyKey)
@@ -37,6 +42,34 @@ func (p *Postgres) GetByID(ctx context.Context, id string) (*job.Job, error) {
 	row := p.pool.QueryRow(ctx, query, id)
 
 	return scanJob(row)
+}
+
+func (p *Postgres) Claim(ctx context.Context, workerID string) (*job.Job, error) {
+	query := `UPDATE jobs
+		SET status = 'in_progress', locked_by = $1, locked_at = now(), updated_at = now()
+		WHERE id = (
+			SELECT j.id FROM jobs j
+			WHERE j.status = 'pending'
+			  AND (j.run_after IS NULL OR j.run_after <= now())
+			  AND (j.depends_on IS NULL OR EXISTS (
+				SELECT 1 FROM jobs parent
+				WHERE parent.id = j.depends_on AND parent.status = 'completed'))
+			ORDER BY j.priority DESC, j.created_at
+			FOR UPDATE SKIP LOCKED
+			LIMIT 1
+		)
+		RETURNING ` + jobColumns
+
+	row := p.pool.QueryRow(ctx, query, workerID)
+
+	claimed, err := scanJob(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return claimed, nil
 }
 
 func scanJob(row pgx.Row) (*job.Job, error) {

@@ -10,7 +10,7 @@ CREATE TABLE jobs (
                                      'completed',
                                      'failed',
                                      'dead'
-                                 )),
+                                 )),but
     depends_on      UUID         REFERENCES jobs(id),
     max_retries     INT          NOT NULL DEFAULT 3,
     retry_count     INT          NOT NULL DEFAULT 0,
