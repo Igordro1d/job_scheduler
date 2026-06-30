@@ -1,0 +1,9 @@
+.idea/
+
+.DS_Store
+
+/scheduler
+/job_scheduler
+
+*.md
+!README.md
