@@ -72,6 +72,24 @@ func (p *Postgres) Claim(ctx context.Context, workerID string) (*job.Job, error)
 	return claimed, nil
 }
 
+func (p *Postgres) MarkCompleted(ctx context.Context, id string) error {
+	query := `UPDATE jobs
+		SET status = 'completed', locked_by = NULL, locked_at = NULL, updated_at = now()
+		WHERE id = $1`
+
+	_, err := p.pool.Exec(ctx, query, id)
+	return err
+}
+
+func (p *Postgres) MarkFailed(ctx context.Context, id string) error {
+	query := `UPDATE jobs
+		SET status = 'failed', locked_by = NULL, locked_at = NULL, updated_at = now()
+		WHERE id = $1`
+
+	_, err := p.pool.Exec(ctx, query, id)
+	return err
+}
+
 func scanJob(row pgx.Row) (*job.Job, error) {
 	var j job.Job
 	err := row.Scan(
