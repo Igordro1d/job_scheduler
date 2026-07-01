@@ -1,6 +1,7 @@
 package api
 
 import (
+	"embed"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -10,6 +11,9 @@ import (
 	"github.com/Igordro1d/job_scheduler/internal/store"
 	"github.com/jackc/pgx/v5"
 )
+
+//go:embed web/index.html
+var webFS embed.FS
 
 type Server struct {
 	store store.Store
@@ -21,10 +25,28 @@ func NewServer(s store.Store) *Server {
 
 func (s *Server) Routes() *http.ServeMux {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /", s.handleIndex)
 	mux.HandleFunc("POST /jobs", s.handleEnqueue)
+	mux.HandleFunc("GET /jobs", s.handleListJobs)
 	mux.HandleFunc("GET /jobs/{id}", s.handleGetJob)
 	mux.HandleFunc("GET /dead-letter", s.handleListDeadLetter)
 	return mux
+}
+
+func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+
+	page, err := webFS.ReadFile("web/index.html")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(page)
 }
 
 type enqueueRequest struct {
@@ -103,6 +125,21 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, toJobResponse(j))
+}
+
+func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
+	jobs, err := s.store.ListRecent(r.Context(), 50)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	responses := make([]jobResponse, 0, len(jobs))
+	for _, j := range jobs {
+		responses = append(responses, toJobResponse(j))
+	}
+
+	writeJSON(w, http.StatusOK, responses)
 }
 
 func (s *Server) handleListDeadLetter(w http.ResponseWriter, r *http.Request) {

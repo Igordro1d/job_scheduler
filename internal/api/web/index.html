@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Job Scheduler</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem; max-width: 900px; color: #1a1a1a; }
+  h1 { margin-bottom: 0.25rem; }
+  .hint { color: #666; font-size: 0.85rem; margin-top: 0; }
+  form { display: grid; gap: 0.5rem; max-width: 380px; margin-bottom: 2rem; }
+  label { display: grid; gap: 0.2rem; font-size: 0.85rem; }
+  input, textarea, button { padding: 0.4rem; font: inherit; }
+  button { background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; }
+  button:hover { background: #1d4ed8; }
+  #result { font-size: 0.85rem; min-height: 1.2rem; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+  th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #eee; }
+  th { color: #666; font-weight: 600; }
+  .status { font-weight: 600; text-transform: capitalize; }
+  .pending { color: #b45309; }
+  .in_progress { color: #2563eb; }
+  .completed { color: #16a34a; }
+  .failed { color: #dc2626; }
+  .dead { color: #7c2d12; }
+  code { font-family: ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<h1>Job Scheduler</h1>
+<p class="hint">Only <code>print</code> has a handler; other types will end up <code>failed</code>.</p>
+
+<form id="create">
+  <label>type
+    <input name="type" value="print" required>
+  </label>
+  <label>payload (JSON)
+    <textarea name="payload" rows="2">{}</textarea>
+  </label>
+  <label>priority
+    <input name="priority" type="number" value="0">
+  </label>
+  <label>idempotency key (optional)
+    <input name="idempotency_key">
+  </label>
+  <button type="submit">Enqueue job</button>
+  <div id="result"></div>
+</form>
+
+<h2>Recent jobs</h2>
+<table>
+  <thead>
+    <tr><th>id</th><th>type</th><th>status</th><th>priority</th><th>retries</th><th>created</th></tr>
+  </thead>
+  <tbody id="jobs"></tbody>
+</table>
+
+<script>
+const result = document.getElementById("result");
+const jobsBody = document.getElementById("jobs");
+
+document.getElementById("create").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  let payload;
+  try {
+    payload = JSON.parse(f.payload.value || "{}");
+  } catch {
+    result.textContent = "payload is not valid JSON";
+    result.style.color = "#dc2626";
+    return;
+  }
+  const body = {
+    type: f.type.value,
+    payload: payload,
+    priority: Number(f.priority.value) || 0,
+  };
+  if (f.idempotency_key.value) body.idempotency_key = f.idempotency_key.value;
+
+  const res = await fetch("/jobs", { method: "POST", body: JSON.stringify(body) });
+  const data = await res.json();
+  if (res.ok) {
+    result.textContent = "created " + data.id;
+    result.style.color = "#16a34a";
+  } else {
+    result.textContent = "error: " + (data.error || res.status);
+    result.style.color = "#dc2626";
+  }
+  refresh();
+});
+
+async function refresh() {
+  const res = await fetch("/jobs");
+  if (!res.ok) return;
+  const jobs = await res.json();
+  jobsBody.innerHTML = jobs.map(j => `
+    <tr>
+      <td><code>${j.id.slice(0, 8)}</code></td>
+      <td>${j.type}</td>
+      <td class="status ${j.status}">${j.status}</td>
+      <td>${j.priority}</td>
+      <td>${j.retry_count}/${j.max_retries}</td>
+      <td>${new Date(j.created_at).toLocaleTimeString()}</td>
+    </tr>`).join("");
+}
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>
