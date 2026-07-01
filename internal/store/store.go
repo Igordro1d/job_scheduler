@@ -10,6 +10,7 @@ import (
 type Store interface {
 	Enqueue(ctx context.Context, params job.EnqueueParams) (*job.Job, error)
 	GetByID(ctx context.Context, id string) (*job.Job, error)
+	ListDeadLetter(ctx context.Context) ([]*job.Job, error)
 	Claim(ctx context.Context, workerID string) (*job.Job, error)
 	MarkCompleted(ctx context.Context, id string) error
 	MarkFailed(ctx context.Context, id string) error

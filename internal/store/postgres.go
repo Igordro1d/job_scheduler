@@ -71,6 +71,30 @@ func (p *Postgres) GetByID(ctx context.Context, id string) (*job.Job, error) {
 	return scanJob(row)
 }
 
+func (p *Postgres) ListDeadLetter(ctx context.Context) ([]*job.Job, error) {
+	query := `SELECT ` + jobColumns + ` FROM jobs WHERE status = 'dead' ORDER BY updated_at DESC`
+
+	rows, err := p.pool.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var jobs []*job.Job
+	for rows.Next() {
+		j, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, j)
+	}
+
+	if rows.Err() != nil {
+		return nil, rows.Err()
+	}
+	return jobs, nil
+}
+
 func (p *Postgres) Claim(ctx context.Context, workerID string) (*job.Job, error) {
 	query := `UPDATE jobs
 		SET status = 'in_progress', locked_by = $1, locked_at = now(), updated_at = now()
