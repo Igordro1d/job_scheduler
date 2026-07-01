@@ -7,8 +7,11 @@ import (
 
 	"github.com/Igordro1d/job_scheduler/internal/job"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+const uniqueViolationCode = "23505"
 
 const jobColumns = `id, type, payload, priority, status, depends_on,
 	max_retries, retry_count, idempotency_key, locked_by, locked_at,
@@ -34,7 +37,30 @@ func (p *Postgres) Enqueue(ctx context.Context, params job.EnqueueParams) (*job.
 	row := p.pool.QueryRow(ctx, query,
 		params.Type, params.Payload, params.Priority, params.DependsOn, params.IdempotencyKey)
 
+	created, err := scanJob(row)
+	if err != nil {
+		if isDuplicateKey(err) && params.IdempotencyKey != nil {
+			return p.getByIdempotencyKey(ctx, *params.IdempotencyKey)
+		}
+		return nil, err
+	}
+	return created, nil
+}
+
+func (p *Postgres) getByIdempotencyKey(ctx context.Context, key string) (*job.Job, error) {
+	query := `SELECT ` + jobColumns + ` FROM jobs WHERE idempotency_key = $1`
+
+	row := p.pool.QueryRow(ctx, query, key)
+
 	return scanJob(row)
+}
+
+func isDuplicateKey(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == uniqueViolationCode
+	}
+	return false
 }
 
 func (p *Postgres) GetByID(ctx context.Context, id string) (*job.Job, error) {
