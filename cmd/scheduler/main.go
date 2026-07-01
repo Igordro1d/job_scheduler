@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -40,8 +41,17 @@ func main() {
 	})
 
 	workers := worker.NewPool(st, registry, 4, time.Second)
+	reaper := worker.NewReaper(st, 10*time.Second, 30*time.Second)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		reaper.Run(ctx)
+	}()
 
 	log.Println("scheduler started")
 	workers.Run(ctx)
+	wg.Wait()
 	log.Println("scheduler stopped")
 }

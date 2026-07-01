@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/Igordro1d/job_scheduler/internal/job"
 	"github.com/jackc/pgx/v5"
@@ -88,6 +89,19 @@ func (p *Postgres) MarkFailed(ctx context.Context, id string) error {
 
 	_, err := p.pool.Exec(ctx, query, id)
 	return err
+}
+
+func (p *Postgres) ReclaimStale(ctx context.Context, timeout time.Duration) (int64, error) {
+	query := `UPDATE jobs
+		SET status = 'pending', locked_by = NULL, locked_at = NULL, updated_at = now()
+		WHERE status = 'in_progress'
+		  AND locked_at < now() - make_interval(secs => $1)`
+
+	tag, err := p.pool.Exec(ctx, query, timeout.Seconds())
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }
 
 func scanJob(row pgx.Row) (*job.Job, error) {
